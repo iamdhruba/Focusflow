@@ -23,9 +23,9 @@ build/
 .pub/
 .flutter-plugins
 .flutter-plugins-dependencies
-*.js
-*.js.map
-*.js.deps
+# Root files only
+/*.bat
+/*.sh
 .metadata
 
 # IDE
