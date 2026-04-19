@@ -103,6 +103,7 @@ class AppsState {
   final List<InstalledApp> installedApps;
   final bool isLoading;
   final bool isSyncing;
+  final bool masterBlock;
   final String? error;
   final DateTime? lastSync;
 

@@ -38,7 +38,7 @@ dependencies:
   flutter_foreground_task: ^8.10.0
 
   # ── Background Sync ──────────────────────────────────────────────────────────
-  workmanager: ^0.5.2
+  workmanager: ^0.9.0
 
   # ── Local Storage ────────────────────────────────────────────────────────────
   shared_preferences: ^2.3.2
@@ -56,6 +56,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -63,3 +64,9 @@ flutter:
     - .env
     - assets/animations/
     - assets/images/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  min_sdk_android: 21

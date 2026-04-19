@@ -68,7 +68,7 @@ Future<void> main() async {
         constraints: Constraints(
           networkType: NetworkType.connected,
         ),
-        existingWorkPolicy: ExistingWorkPolicy.keep,
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
         backoffPolicy: BackoffPolicy.linear,
         backoffPolicyDelay: const Duration(minutes: 5),
       );

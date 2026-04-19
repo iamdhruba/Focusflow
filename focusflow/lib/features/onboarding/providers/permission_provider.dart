@@ -8,6 +8,7 @@ class PermissionState {
   final bool accessibility;
   final bool overlay;
   final bool deviceAdmin;
+  final bool batteryOptimization;
   final bool isChecking;
 
   const PermissionState({

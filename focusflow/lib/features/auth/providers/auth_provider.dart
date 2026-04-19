@@ -104,7 +104,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     final result = await _auth.updateStrictMode(
-      enabled: enabled ?? strictMode,
+      enabled: enabled ?? state.strictMode,
       pin: pin,
       dailyGoalMinutes: dailyGoalMinutes,
     );
