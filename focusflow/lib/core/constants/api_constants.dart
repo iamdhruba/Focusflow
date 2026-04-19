@@ -6,7 +6,7 @@ class ApiConstants {
   ApiConstants._();
 
   static String get baseUrl =>
-      dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:5000/api/v1';
+      dotenv.env['API_BASE_URL'] ?? 'https://focusflow-709d.onrender.com/api/v1';
 
   static int get syncIntervalMinutes =>
       int.tryParse(dotenv.env['SYNC_INTERVAL_MINUTES'] ?? '15') ?? 15;
