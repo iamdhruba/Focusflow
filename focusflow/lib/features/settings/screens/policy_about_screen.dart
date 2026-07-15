@@ -103,7 +103,7 @@ class PolicyAboutScreen extends StatelessWidget {
                   icon: Icons.star_rounded,
                   label: 'Rate on Play Store',
                   onTap: () async {
-                    final url = Uri.parse('https://play.google.com/store/apps/details?id=com.dhrubaraj.focusflow');
+                    final url = Uri.parse('https://play.google.com/store/apps/details?id=com.focusflow.productivity.app');
                     if (await canLaunchUrl(url)) {
                       await launchUrl(url, mode: LaunchMode.externalApplication);
                     }

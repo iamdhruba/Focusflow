@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  R8 resource-shrinker guard for v1.0.1+ when `isShrinkResources = true`.
+
+  When isShrinkResources is on, AAPT2's resource shrinker drops any resource
+  it cannot statically prove is referenced. Flutter loads several resources
+  by NAME at runtime (not by R8's static analysis), so without this file the
+  shrinker would silently drop:
+
+    - mipmap/ic_launcher       — launcher icon (Android system loads by name)
+    - mipmap-anydpi-v26/*      — adaptive icon XML (forwarded to launcher)
+    - drawable/launch_background.xml — splash screen background, looked up
+                                       by name from the FlutterActivity theme
+    - drawable-v21/launch_background.xml — same, API 21+ variant
+    - xml/accessibility_service_config.xml — referenced from
+                                             AndroidManifest's <service> tag
+    - xml/device_admin.xml     — referenced from
+                                 AndroidManifest's <receiver> tag
+    - xml/data_extraction_rules.xml — referenced from
+                                       AndroidManifest's android:dataExtractionRules
+
+  Without this keep.xml, the first release build with isShrinkResources=true
+  would compile and install fine but the launcher icon would render as a
+  generic Android icon and the splash screen would be blank.
+
+  Maintenance: when adding new drawable/mipmap/xml resources that are looked
+  up by name, add a corresponding `<item>` here. The `tools:keep` whitelist
+  is more reliable than `tools:discard` blacklist for Flutter apps because
+  Flutter's resource references aren't visible to AAPT2's analyzer.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@mipmap/ic_launcher,@mipmap/ic_launcher_round,@mipmap/ic_launcher_foreground,@mipmap/ic_launcher_background,@drawable/launch_background,@xml/accessibility_service_config,@xml/device_admin,@xml/data_extraction_rules" />

@@ -99,7 +99,7 @@ class AuthService {
   /// Request password reset token.
   Future<AuthResult> forgotPassword(String email) async {
     try {
-      final res = await _api.post('/auth/forgot-password', data: {'email': email});
+      final res = await _api.post(ApiConstants.forgotPassword, data: {'email': email});
       return AuthResult(success: true, message: res.data['message']);
     } catch (e) {
       return AuthResult(success: false, message: ApiService.parseError(e));
@@ -109,7 +109,7 @@ class AuthService {
   /// Reset password with token.
   Future<AuthResult> resetPassword({required String token, required String newPassword}) async {
     try {
-      final res = await _api.put('/auth/reset-password/$token', data: {'password': newPassword});
+      final res = await _api.put(ApiConstants.resetPassword(token), data: {'password': newPassword});
       return AuthResult(success: true, user: res.data['user']);
     } catch (e) {
       return AuthResult(success: false, message: ApiService.parseError(e));
@@ -119,7 +119,7 @@ class AuthService {
   /// Request PIN reset code (authenticated).
   Future<AuthResult> forgotPIN() async {
     try {
-      final res = await _api.post('/auth/forgot-pin');
+      final res = await _api.post(ApiConstants.forgotPIN);
       return AuthResult(success: true, message: res.data['message']);
     } catch (e) {
       return AuthResult(success: false, message: ApiService.parseError(e));
@@ -129,7 +129,7 @@ class AuthService {
   /// Reset PIN with code (authenticated).
   Future<AuthResult> resetPIN({required String code, required String newPin}) async {
     try {
-      final res = await _api.put('/auth/reset-pin', data: {'code': code, 'newPin': newPin});
+      final res = await _api.put(ApiConstants.resetPIN, data: {'code': code, 'newPin': newPin});
       return AuthResult(success: true, message: res.data['message']);
     } catch (e) {
       return AuthResult(success: false, message: ApiService.parseError(e));

@@ -60,6 +60,16 @@ class AppColors {
   static const Color onError = Color(0xFFFFFFFF);
   static const Color onErrorContainer = Color(0xFF93000A);
 
+  // ── Warning (Phase 4 progress-bar mid-cap state) ─────────────────────────
+  // Material 3 has no built-in warning token; amber-900 + amber-200 keeps
+  // the existing red `error` semantically reserved for the cap-exceeded
+  // ramp. Phase 4 progress bars use:
+  //   fraction 0.0–0.7   → primary   (blue)
+  //   fraction 0.7–0.9   → warning   (amber)
+  //   fraction 0.9–1.0   → error     (red)
+  static const Color warning = Color(0xFFE65100);       // amber-900
+  static const Color warningContainer = Color(0xFFFFE0B2); // amber-200
+
   // ── Gradients ─────────────────────────────────────────────────────────────
   static const LinearGradient primaryGradient = LinearGradient(
     begin: Alignment.topLeft,

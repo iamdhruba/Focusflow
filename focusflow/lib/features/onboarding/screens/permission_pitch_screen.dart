@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/shared/widgets/gradient_button.dart';
+import 'package:focusflow/shared/widgets/brand_logo.dart';
 
 /// Screen 2: Permission Pitch
 /// Explains WHY each permission is needed — builds trust before requesting.
@@ -50,12 +51,18 @@ class PermissionPitchScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  IconButton(
-                    onPressed: () => context.pop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    padding: EdgeInsets.zero,
-                    style: IconButton.styleFrom(
-                        foregroundColor: AppColors.onBackground),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        onPressed: () => context.pop(),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        padding: EdgeInsets.zero,
+                        style: IconButton.styleFrom(
+                            foregroundColor: AppColors.onBackground),
+                      ),
+                      const BrandLogo(size: 40, iconSize: 22),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   Text('Why we\nneed access',

@@ -5,8 +5,23 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class ApiConstants {
   ApiConstants._();
 
-  static String get baseUrl =>
-      dotenv.env['API_BASE_URL'] ?? 'https://focusflow-709d.onrender.com/api/v1';
+  static String get baseUrl {
+    final env = dotenv.env['APP_ENV'] ?? 'development';
+    final url = dotenv.env['API_BASE_URL'];
+    // Fail fast in production so a missing .env can't silently fall back
+    // to a hardcoded URL that may be stale or incorrect.
+    if (env == 'production') {
+      if (url == null || url.trim().isEmpty) {
+        throw StateError(
+          'API_BASE_URL must be set in .env when APP_ENV=production',
+        );
+      }
+      return url;
+    }
+    return url?.trim().isNotEmpty == true
+        ? url!
+        : 'https://focusflow-709d.onrender.com/api/v1';
+  }
 
   static int get syncIntervalMinutes =>
       int.tryParse(dotenv.env['SYNC_INTERVAL_MINUTES'] ?? '15') ?? 15;
@@ -19,10 +34,20 @@ class ApiConstants {
   static const String refresh = '/auth/refresh';
   static const String me = '/auth/me';
   static const String strictMode = '/auth/strict-mode';
+  static const String forgotPassword = '/auth/forgot-password';
+  static String resetPassword(String token) => '/auth/reset-password/$token';
+  static const String forgotPIN = '/auth/forgot-pin';
+  static const String resetPIN = '/auth/reset-pin';
 
   static const String policies = '/policies';
   static String togglePolicy(String id) => '/policies/$id/toggle';
   static String deletePolicy(String id) => '/policies/$id';
+
+  // ── Per-screen policies (Phase 4) ──
+  static const String screenPolicies = '/screen-policies';
+  static String toggleScreenPolicy(String id) => '/screen-policies/$id/toggle';
+  static String deleteScreenPolicy(String id) => '/screen-policies/$id';
+  static const String syncScreenPolicies = '/screen-policies/sync';
 
   static const String sync = '/sync';
   static const String syncStatus = '/sync/status';

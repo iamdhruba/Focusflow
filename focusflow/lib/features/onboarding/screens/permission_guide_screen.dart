@@ -5,6 +5,8 @@ import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/core/storage/secure_storage.dart';
 import '../providers/permission_provider.dart';
 import 'package:focusflow/shared/widgets/gradient_button.dart';
+import 'package:focusflow/core/services/native_channel_service.dart';
+import 'package:focusflow/shared/widgets/brand_logo.dart';
 
 /// Screen 3: Permission Guide
 /// Interactive checklist — each row shows granted/pending status.
@@ -80,6 +82,11 @@ class _PermissionGuideScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: BrandLogo(size: 40, iconSize: 22),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   // Progress indicator
                   Row(
                     children: List.generate(5, (i) {
@@ -154,6 +161,24 @@ class _PermissionGuideScreenState
                   if (!perms.allGranted) ...[
                     const SizedBox(height: AppSpacing.sm),
                     TextButton(
+                      onPressed: () => _showRestrictedSettingsGuide(context),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.help_outline_rounded,
+                              size: 16, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Having trouble granting permissions?',
+                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  color: AppColors.primary,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextButton(
                       onPressed: () async {
                         await SecureStorage.setOnboardingDone();
                         if (context.mounted) context.go('/dashboard');
@@ -171,6 +196,44 @@ class _PermissionGuideScreenState
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showRestrictedSettingsGuide(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Permissions Blocked?'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'On Android 13+, system settings may be restricted for apps installed via APK.',
+            ),
+            SizedBox(height: AppSpacing.md),
+            Text('To fix this:', style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: AppSpacing.sm),
+            Text('1. Tap "Open App Info" below.'),
+            Text('2. Tap the ︙ (three dots) in the top right corner.'),
+            Text('3. Select "Allow restricted settings".'),
+            Text('4. Come back here and try granting permissions again.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Dismiss'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              NativeChannelService().openAppSettings();
+            },
+            child: const Text('Open App Info'),
+          ),
+        ],
       ),
     );
   }

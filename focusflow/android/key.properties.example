@@ -1,0 +1,21 @@
+# FocusFlow Android Release Keystore
+#
+# Copy this file to `key.properties` at this same directory
+#   cp key.properties.example key.properties
+# and fill in the values below.
+#
+# IMPORTANT — `key.properties` itself MUST stay out of version control!
+# `*.jks` and `key.properties` are already in android/.gitignore.
+#
+# Generate a keystore ONCE with:
+#   keytool -genkey -v -keystore upload-keystore.jks -alias upload \
+#           -keyalg RSA -keysize 2048 -validity 10000
+#
+# Paths in this file are relative to the android/ directory.
+# storeFile points one level up so the keystore can live outside android/app.
+#
+
+storePassword=YOUR_KEYSTORE_PASSWORD_HERE
+keyPassword=YOUR_KEY_PASSWORD_HERE
+keyAlias=upload
+storeFile=../upload-keystore.jks

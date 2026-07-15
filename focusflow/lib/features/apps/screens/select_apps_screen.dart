@@ -1,11 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/features/apps/providers/apps_provider.dart';
+import 'package:focusflow/features/auth/providers/auth_provider.dart';
 
-/// Screen 5: Select Apps
-/// Shows all installed apps; user taps to add a blocking policy.
 class SelectAppsScreen extends ConsumerStatefulWidget {
   const SelectAppsScreen({super.key});
 
@@ -50,7 +50,6 @@ class _SelectAppsScreenState extends ConsumerState<SelectAppsScreen> {
       ),
       body: Column(
         children: [
-          // Search bar
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xl, AppSpacing.md, AppSpacing.xl, AppSpacing.md),
@@ -74,7 +73,6 @@ class _SelectAppsScreenState extends ConsumerState<SelectAppsScreen> {
             ),
           ),
 
-          // App count
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.sm),
@@ -87,7 +85,6 @@ class _SelectAppsScreenState extends ConsumerState<SelectAppsScreen> {
             ),
           ),
 
-          // List
           Expanded(
             child: apps.installedApps.isEmpty
                 ? const Center(
@@ -103,9 +100,11 @@ class _SelectAppsScreenState extends ConsumerState<SelectAppsScreen> {
                       final app = filtered[i];
                       final alreadyAdded =
                           existingPackages.contains(app.packageName);
+                      final isStrict = ref.watch(authProvider).strictMode;
+                      
                       return _InstalledAppTile(
                         app: app,
-                        alreadyAdded: alreadyAdded,
+                        alreadyAdded: alreadyAdded || isStrict,
                         onTap: () {
                           context.push('/apps/set-limit',
                               extra: AppPolicyModel(
@@ -151,30 +150,21 @@ class _InstalledAppTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // App icon
               Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [
-                      AppColors.primaryFixed,
-                      AppColors.secondaryFixed,
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: AppColors.surfaceContainerHigh,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-                child: Center(
-                  child: Text(
-                    app.appName.isNotEmpty ? app.appName[0].toUpperCase() : 'A',
-                    style: const TextStyle(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18),
-                  ),
-                ),
+                clipBehavior: Clip.antiAlias,
+                child: app.iconBase64 != null
+                    ? Image.memory(
+                        base64Decode(app.iconBase64!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (ctx, _, __) => _Placeholder(name: app.appName),
+                      )
+                    : _Placeholder(name: app.appName),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -211,6 +201,24 @@ class _InstalledAppTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _Placeholder extends StatelessWidget {
+  final String name;
+  const _Placeholder({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        name.isNotEmpty ? name[0].toUpperCase() : 'A',
+        style: const TextStyle(
+            color: AppColors.primary,
+            fontWeight: FontWeight.w800,
+            fontSize: 18),
       ),
     );
   }

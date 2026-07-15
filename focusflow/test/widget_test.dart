@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:focusflow/shared/widgets/gradient_button.dart';
 import 'package:focusflow/shared/widgets/glass_card.dart';
 

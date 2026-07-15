@@ -22,12 +22,33 @@ const registerValidation = [
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password')
     .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters'),
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+    .withMessage('Password must contain at least one letter and one number'),
 ];
 
 const loginValidation = [
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required'),
+];
+
+const recoveryValidation = [
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+];
+
+const resetPasswordValidation = [
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+    .withMessage('Password must contain at least one letter and one number'),
+];
+
+const resetPinValidation = [
+  body('code').notEmpty().withMessage('Reset code is required'),
+  body('newPin')
+    .isLength({ min: 4, max: 8 })
+    .withMessage('PIN must be between 4 and 8 digits'),
 ];
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -39,9 +60,9 @@ router.get('/me', protect, getMe);
 router.patch('/strict-mode', protect, updateStrictMode);
 
 // ─── Recovery ────────────────────────────────────────────────────────────────
-router.post('/forgot-password', forgotPassword);
-router.put('/reset-password/:resetToken', resetPassword);
+router.post('/forgot-password', recoveryValidation, forgotPassword);
+router.put('/reset-password/:resetToken', resetPasswordValidation, resetPassword);
 router.post('/forgot-pin', protect, forgotPIN);
-router.put('/reset-pin', protect, resetPIN);
+router.put('/reset-pin', [protect, resetPinValidation], resetPIN);
 
 module.exports = router;

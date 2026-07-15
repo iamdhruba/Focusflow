@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 
@@ -23,23 +24,31 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = backgroundColor ?? AppColors.surfaceContainerLowest;
+    
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: backgroundColor ?? AppColors.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(borderRadius),
-          boxShadow: shadows ?? AppColors.cardShadow,
-          border: Border.all(
-            color: AppColors.outlineVariant.withValues(alpha: 0.15),
-            width: 1,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+            decoration: BoxDecoration(
+              color: cardColor.withValues(alpha: 0.7), // Semi-transparent for glass effect
+              borderRadius: BorderRadius.circular(borderRadius),
+              boxShadow: shadows ?? AppColors.cardShadow,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
+                width: 1,
+              ),
+            ),
+            child: Padding(
+              padding: padding ?? const EdgeInsets.all(AppSpacing.md),
+              child: child,
+            ),
           ),
-        ),
-        child: Padding(
-          padding: padding ?? const EdgeInsets.all(AppSpacing.md),
-          child: child,
         ),
       ),
     );

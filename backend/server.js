@@ -11,6 +11,21 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 
+// ─── Environment Validation ───────────────────────────────────────────────────
+const requiredEnv = [
+  'MONGO_URI',
+  'JWT_SECRET',
+  'JWT_REFRESH_SECRET',
+  'SMTP_EMAIL',
+  'SMTP_PASSWORD',
+];
+
+const missing = requiredEnv.filter((k) => !process.env[k]);
+if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
+  console.error(`❌  Missing required environment variables: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 // ─── Connect to Database ──────────────────────────────────────────────────────
 connectDB();
 
@@ -40,6 +55,14 @@ const authLimiter = rateLimit({
 });
 app.use('/api/v1/auth/login', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
+app.use('/api/v1/auth/forgot-password', authLimiter);
+app.use('/api/v1/auth/reset-password', authLimiter);
+app.use('/api/v1/auth/forgot-pin', authLimiter);
+app.use('/api/v1/auth/reset-pin', authLimiter);
+
+// ─── Trust Proxy ──────────────────────────────────────────────────────────────
+// Required for express-rate-limit to get correct IP when behind a reverse proxy (Render, Heroku, etc.)
+app.set('trust proxy', 1);
 
 // CORS — allow configured origins
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
@@ -50,13 +73,24 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow all in development, otherwise check allowedOrigins
-      if (process.env.NODE_ENV === 'development' || !origin) {
+      // Always allow if no origin (e.g. server-to-server or mobile app)
+      if (!origin) return callback(null, true);
+
+      // In development, allow all
+      if (process.env.NODE_ENV === 'development') {
         return callback(null, true);
       }
-      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+
+      // In production, check against allowedOrigins
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
+
+      // If allowedOrigins is empty in production, it's a configuration error
+      if (allowedOrigins.length === 0) {
+        console.warn('⚠️ CORS: allowedOrigins is empty in production. All origins blocked.');
+      }
+
       callback(new Error(`CORS policy: origin ${origin} is not allowed`));
     },
     credentials: true,
@@ -86,6 +120,7 @@ app.get('/health', (req, res) => {
 app.use('/api/v1/auth', require('./routes/auth'));
 app.use('/api/v1/policies', require('./routes/policy'));
 app.use('/api/v1/sync', require('./routes/sync'));
+app.use('/api/v1/screen-policies', require('./routes/screenPolicy'));
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -103,12 +138,17 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
+// Only start the HTTP listener when this file is run directly. Tests import
+// the exported `app` and should not keep a port open, otherwise Jest reports
+// open handles after the test suite finishes.
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀  FocusFlow API running on port ${PORT} [${process.env.NODE_ENV}]`);
-  console.log(`    Health: http://localhost:${PORT}/health`);
-  console.log(`    Auth:   http://localhost:${PORT}/api/v1/auth`);
-  console.log(`    Sync:   http://localhost:${PORT}/api/v1/sync`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀  FocusFlow API running on port ${PORT} [${process.env.NODE_ENV}]`);
+    console.log(`    Health: http://localhost:${PORT}/health`);
+    console.log(`    Auth:   http://localhost:${PORT}/api/v1/auth`);
+    console.log(`    Sync:   http://localhost:${PORT}/api/v1/sync`);
+  });
+}
 
 module.exports = app;

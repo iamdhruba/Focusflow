@@ -1,7 +1,7 @@
 name: focusflow
 description: FocusFlow — Digital Wellbeing & App Blocker
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -33,6 +33,7 @@ dependencies:
   lottie: ^3.1.2
   flutter_svg: ^2.0.10+1
   shimmer: ^3.0.0
+  cupertino_icons: ^1.0.8
 
   # ── Foreground Service (Android) ─────────────────────────────────────────────
   flutter_foreground_task: ^8.10.0
@@ -55,8 +56,34 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
+
+  # In-process SQLite for the migration-test suite. `sqflite_common_ffi`
+  # provides a `databaseFactoryFfi` that runs sqflite calls over pure Dart
+  # FFI instead of MethodChannel — so the test harness never has to spin up
+  # a Flutter binding just to verify schema migrations.
+  #
+  # `sqlite3_flutter_libs` was REMOVED in v1.0.1: the plugin's own
+  # pubspec.yaml (verified at v0.5.5) declares an Android package
+  # `eu.simonbinder.sqlite3_flutter_libs.Sqlite3FlutterLibsPlugin` that
+  # doesn't exist in the plugin's actual source tree. Flutter's pub
+  # tool emits this broken reference into the auto-generated
+  # `GeneratedPluginRegistrant.java`, which fails Java compilation in
+  # the production Android release build. Pinning to 0.5.5 didn't fix
+  # it because the bug is in the plugin's own metadata, not in version
+  # resolution. The plugin can't be patched at the project level.
+  #
+  # Without the plugin, the `sqlite3` Dart package falls back to system
+  # libsqlite3 via process lookup. On Linux/macOS dev hosts this works
+  # out of the box. On Windows dev hosts, install sqlite3 (e.g.
+  # `choco install sqlite3` or drop `sqlite3.dll` in the PATH) before
+  # running tests. FFI-based migration tests are gated behind this
+  # requirement — the production APK doesn't need it (Android ships
+  # with built-in SQLite used by `sqflite` at runtime).
+  sqflite_common_ffi: ^2.3.0
 
 flutter:
   uses-material-design: true
@@ -66,7 +93,10 @@ flutter:
     - assets/images/
 
 flutter_launcher_icons:
-  android: "launcher_icon"
-  ios: true
+  android: true
+  ios: false
   image_path: "assets/images/app_icon.png"
   min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
+

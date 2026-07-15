@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
-import 'package:focusflow/features/auth/providers/auth_provider.dart';
 import 'package:focusflow/shared/widgets/gradient_button.dart';
 import 'package:focusflow/shared/widgets/glass_card.dart';
-import 'package:focusflow/core/services/auth_service.dart';
+import 'package:focusflow/core/services/native_channel_service.dart';
 
-/// Screen 8: Strict Mode Settings
 class StrictModeScreen extends ConsumerStatefulWidget {
   const StrictModeScreen({super.key});
   @override
@@ -18,85 +16,46 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
   final _pinCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _showPinInput = false;
-  bool _isDisabling = false;
+  bool _isProcessing = false;
   String? _pinError;
+  bool _strictModeEnabled = false;
+  bool _isAdminActive = false;
+
+  final _native = NativeChannelService();
+
+  @override
+  void initState() {
+    super.initState();
+    _native.setSafeMode(true);
+    _checkStatus();
+  }
+
+  Future<void> _checkStatus() async {
+    final status = await _native.getStrictModeStatus();
+    if (mounted) {
+      setState(() {
+        _strictModeEnabled = status;
+      });
+    }
+    final admin = await _native.isDeviceAdminActive();
+    if (mounted) {
+      setState(() => _isAdminActive = admin);
+    }
+  }
 
   @override
   void dispose() {
+    _native.setSafeMode(false);
     _pinCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _showForgotPINDialog() async {
-    setState(() => _isDisabling = true);
-    final result = await AuthService().forgotPIN();
-    setState(() => _isDisabling = false);
-
-    if (!mounted) return;
-
-    if (!result.success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? 'Failed to request reset code')));
+  Future<void> _enableStrictMode() async {
+    if (!_isAdminActive) {
+      setState(() => _pinError = 'Device Admin must be enabled first');
       return;
     }
-
-    final codeCtrl = TextEditingController();
-    final newPinCtrl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset Strict PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('A 6-digit reset code has been sent to your registered email address.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: codeCtrl,
-              decoration: const InputDecoration(labelText: 'Reset Code', hintText: '6-digit code'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: newPinCtrl,
-              decoration: const InputDecoration(labelText: 'New PIN', hintText: 'Min 4 digits'),
-              keyboardType: TextInputType.number,
-              obscureText: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              if (codeCtrl.text.isEmpty || newPinCtrl.text.length < 4) return;
-              final res = await AuthService().resetPIN(
-                code: codeCtrl.text.trim(),
-                newPin: newPinCtrl.text,
-              );
-              if (res.success) {
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(res.message ?? 'PIN reset!')));
-                }
-                // Refresh user state
-                await ref.read(authProvider.notifier).login(
-                  email: ref.read(authProvider).user?['email'] ?? '',
-                  password: '', 
-                );
-              }
-            },
-            child: const Text('Reset PIN'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _enableStrictMode() async {
     if (_pinCtrl.text.length < 4) {
       setState(() => _pinError = 'PIN must be at least 4 digits');
       return;
@@ -105,14 +64,35 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
       setState(() => _pinError = 'PINs do not match');
       return;
     }
-    setState(() => _pinError = null);
-    final ok = await ref.read(authProvider.notifier).updateStrictMode(
-          enabled: true, pin: _pinCtrl.text);
-    if (ok && mounted) {
-      setState(() => _showPinInput = false);
-      _pinCtrl.clear(); _confirmCtrl.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
+    
+    setState(() {
+      _isProcessing = true;
+      _pinError = null;
+    });
+
+    final success = await _native.updateStrictMode(
+      enabled: true,
+      pin: _pinCtrl.text,
+    );
+
+    setState(() => _isProcessing = false);
+
+    if (success && mounted) {
+      setState(() {
+        _showPinInput = false;
+        _strictModeEnabled = true;
+      });
+      // Capture ScaffoldMessenger before the async gap so we don't regress
+      // to `BuildContext` after `await` (which analyzers flag as risky).
+      final messenger = ScaffoldMessenger.of(context);
+      // Explicitly trigger native uninstall block
+      await _native.setUninstallBlocked(true);
+      _pinCtrl.clear();
+      _confirmCtrl.clear();
+      messenger.showSnackBar(
         const SnackBar(content: Text('Strict Mode enabled'), backgroundColor: AppColors.tertiary));
+    } else if (mounted) {
+      setState(() => _pinError = 'Failed to enable Strict Mode');
     }
   }
 
@@ -121,117 +101,50 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
       setState(() => _pinError = 'Enter your PIN');
       return;
     }
-    setState(() { _isDisabling = true; _pinError = null; });
-    
-    // In our logic, the first PIN entry starts the cooldown,
-    // and the second one (after 24h) actually disables it.
-    final ok = await ref.read(authProvider.notifier).updateStrictMode(
-        enabled: false, pin: _pinCtrl.text);
-    
-    setState(() => _isDisabling = false);
-    
-    if (ok && mounted) {
-      final auth = ref.read(authProvider);
-      if (auth.user?['strictModeDisableRequestAt'] != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('24-hour cooldown started. Come back tomorrow.'),
-            backgroundColor: AppColors.primary,
-          ),
-        );
-      } else {
-        setState(() => _showPinInput = false);
-      }
-      _pinCtrl.clear();
-    } else if (mounted) {
-      final err = ref.read(authProvider).error;
-      setState(() => _pinError = err ?? 'Incorrect PIN or Cooldown Active');
-    }
-  }
 
-  String _formatCooldown(String? isoDate) {
-    if (isoDate == null) return '';
-    final date = DateTime.parse(isoDate).toLocal();
-    final unlockDate = date.add(const Duration(hours: 24));
-    final diff = unlockDate.difference(DateTime.now());
-    
-    if (diff.isNegative) return 'Ready to disable';
-    return '${diff.inHours}h ${diff.inMinutes % 60}m remaining';
+    setState(() {
+      _isProcessing = true;
+      _pinError = null;
+    });
+
+    final success = await _native.updateStrictMode(
+      enabled: false,
+      pin: _pinCtrl.text,
+    );
+
+    setState(() => _isProcessing = false);
+
+    if (success && mounted) {
+      setState(() {
+        _showPinInput = false;
+        _strictModeEnabled = false;
+      });
+      // Capture ScaffoldMessenger before the async gap so we don't regress
+      // to `BuildContext` after `await` (which analyzers flag as risky).
+      final messenger = ScaffoldMessenger.of(context);
+      // Explicitly disable native uninstall block
+      await _native.setUninstallBlocked(false);
+      _pinCtrl.clear();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Strict Mode disabled'), backgroundColor: AppColors.primary));
+    } else if (mounted) {
+      setState(() => _pinError = 'Incorrect PIN or 24h Lock active');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = ref.watch(authProvider);
-    final strictMode = auth.strictMode;
-    final cooldownStart = auth.user?['strictModeDisableRequestAt'] as String?;
-    final isCooldownActive = cooldownStart != null;
-
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(
         title: const Text('Strict Mode'),
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
-        actions: [
-          TextButton(
-            onPressed: () => context.push('/settings/about'),
-            child: const Text('About'),
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ─── Daily Focus Goal ──────────────────────────────────────────────────
-            Text('Daily Focus Goal', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: AppSpacing.md),
-            GlassCard(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Total allowed usage',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.onSurfaceVariant),
-                      ),
-                      Text(
-                        '${auth.dailyGoalMinutes ~/ 60}h ${auth.dailyGoalMinutes % 60}m',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 4,
-                      activeTrackColor: AppColors.primary,
-                      inactiveTrackColor: AppColors.primaryFixed,
-                      thumbColor: AppColors.primary,
-                      overlayColor: AppColors.primary.withValues(alpha: 0.1),
-                    ),
-                    child: Slider(
-                      value: auth.dailyGoalMinutes.toDouble(),
-                      min: 30,
-                      max: 480,
-                      divisions: 15, // Every 30 mins
-                      onChanged: (v) {
-                        ref.read(authProvider.notifier).updateStrictMode(
-                          dailyGoalMinutes: v.toInt(),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: AppSpacing.xl),
+          children: <Widget>[
             Text('Security Settings', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: AppSpacing.md),
             GlassCard(
@@ -240,11 +153,11 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
                   Container(
                     width: 56, height: 56,
                     decoration: BoxDecoration(
-                      color: strictMode ? AppColors.error.withValues(alpha: 0.12) : AppColors.primaryFixed,
+                      color: _strictModeEnabled ? AppColors.error.withValues(alpha: 0.12) : AppColors.primaryFixed,
                       borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
-                    child: Icon(strictMode ? Icons.lock_rounded : Icons.lock_open_rounded,
-                        color: strictMode ? AppColors.error : AppColors.primary, size: 28),
+                    child: Icon(_strictModeEnabled ? Icons.lock_rounded : Icons.lock_open_rounded,
+                        color: _strictModeEnabled ? AppColors.error : AppColors.primary, size: 28),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
@@ -253,14 +166,11 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
                       children: [
                         Text('Strict Mode', style: Theme.of(context).textTheme.titleMedium),
                         Text(
-                          isCooldownActive
-                              ? 'Cooldown Active — ${_formatCooldown(cooldownStart)}'
-                              : strictMode
-                                  ? 'Active — uninstallation is protected by PIN'
-                                  : 'Inactive — app can be uninstalled freely',
+                          _strictModeEnabled
+                              ? 'Active — protected by 24h lock'
+                              : 'Inactive — protection is disabled',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: isCooldownActive ? AppColors.primary : AppColors.onSurfaceVariant,
-                                fontWeight: isCooldownActive ? FontWeight.w600 : FontWeight.normal,
+                                color: AppColors.onSurfaceVariant,
                                 height: 1.4,
                               ),
                         ),
@@ -270,26 +180,51 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: strictMode ? AppColors.errorContainer : AppColors.primaryFixed,
+                      color: _strictModeEnabled ? AppColors.errorContainer : AppColors.primaryFixed,
                       borderRadius: BorderRadius.circular(AppRadius.full),
                     ),
-                    child: Text(strictMode ? 'ON' : 'OFF',
+                    child: Text(_strictModeEnabled ? 'ON' : 'OFF',
                         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: strictMode ? AppColors.error : AppColors.primary,
+                            color: _strictModeEnabled ? AppColors.error : AppColors.primary,
                             fontWeight: FontWeight.w800)),
                   ),
                 ],
               ),
             ),
 
+            if (!_isAdminActive && !_strictModeEnabled) ...[
+              const SizedBox(height: AppSpacing.md),
+              GlassCard(
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: AppColors.error),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        'Device Admin permission is REQUIRED to prevent app uninstallation.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.error),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        await _native.requestDeviceAdmin();
+                        _checkStatus();
+                      },
+                      child: const Text('Enable'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: AppSpacing.xl),
             Text('What Strict Mode does', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: AppSpacing.md),
             ...[
-              (Icons.admin_panel_settings_rounded, 'Prevents FocusFlow from being uninstalled without a PIN'),
-              (Icons.settings_applications_rounded, 'Blocks access to Android Settings in the restricted list'),
-              (Icons.lock_clock_rounded, 'Requires a 24-hour cooldown before disabling'),
-            ].map((item) => Padding(
+              (Icons.admin_panel_settings_rounded, 'Prevents FocusFlow from being uninstalled'),
+              (Icons.settings_applications_rounded, 'Blocks access to Android Settings'),
+              (Icons.lock_clock_rounded, 'Requires a 24-hour wait before disabling'),
+            ].map<Widget>((item) => Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: Row(
                 children: [
@@ -316,12 +251,12 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
                 keyboardType: TextInputType.number,
                 maxLength: 8,
                 decoration: InputDecoration(
-                  labelText: strictMode ? 'Enter current PIN to disable' : 'Create a PIN (min 4 digits)',
+                  labelText: _strictModeEnabled ? 'Enter PIN to disable' : 'Create a PIN (min 4 digits)',
                   errorText: _pinError,
                   prefixIcon: const Icon(Icons.pin_rounded),
                 ),
               ),
-              if (!strictMode) ...[
+              if (!_strictModeEnabled) ...[
                 const SizedBox(height: AppSpacing.md),
                 TextField(
                   controller: _confirmCtrl,
@@ -336,9 +271,9 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
               ],
               const SizedBox(height: AppSpacing.lg),
               GradientButton(
-                label: strictMode ? 'Disable Strict Mode' : 'Enable Strict Mode',
-                isLoading: _isDisabling || auth.isLoading,
-                onPressed: strictMode ? _disableStrictMode : _enableStrictMode,
+                label: _strictModeEnabled ? 'Disable Strict Mode' : 'Enable Strict Mode',
+                isLoading: _isProcessing,
+                onPressed: _strictModeEnabled ? _disableStrictMode : _enableStrictMode,
               ),
               const SizedBox(height: AppSpacing.sm),
               GradientButton(
@@ -349,37 +284,19 @@ class _StrictModeScreenState extends ConsumerState<StrictModeScreen> {
                   _pinCtrl.clear(); _confirmCtrl.clear();
                 },
               ),
-              if (strictMode) ...[
-                const SizedBox(height: AppSpacing.md),
-                Center(
-                  child: TextButton(
-                    onPressed: _showForgotPINDialog,
-                    child: Text(
-                      'Forgot PIN?',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: AppColors.onSurfaceVariant,
-                          ),
-                    ),
-                  ),
-                ),
-              ],
             ] else ...[
               GradientButton(
-                label: strictMode ? 'Disable Strict Mode' : 'Enable Strict Mode',
-                icon: strictMode ? Icons.lock_open_rounded : Icons.lock_rounded,
+                label: _strictModeEnabled ? 'Disable Strict Mode' : 'Enable Strict Mode',
+                icon: _strictModeEnabled ? Icons.lock_open_rounded : Icons.lock_rounded,
                 onPressed: () => setState(() => _showPinInput = true),
               ),
             ],
-
-            const SizedBox(height: AppSpacing.xl),
-            GradientButton(
-              label: 'Sign Out',
-              isSecondary: true,
-              icon: Icons.logout_rounded,
-              onPressed: () async {
-                await ref.read(authProvider.notifier).logout();
-                if (context.mounted) context.go('/');
-              },
+            
+            const SizedBox(height: AppSpacing.xxxl),
+            Text(
+              'Strict mode is local to this device. If you forget your PIN, you must wait 24 hours to attempt a reset (via device settings if available).',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant),
+              textAlign: TextAlign.center,
             ),
           ],
         ),

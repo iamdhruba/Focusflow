@@ -1,4 +1,4 @@
-package com.focusflow.focusflow
+package com.focusflow.productivity.app
 
 import android.app.usage.UsageStatsManager
 import android.content.Context

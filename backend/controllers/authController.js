@@ -139,17 +139,28 @@ exports.refresh = async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    const secret = process.env.JWT_REFRESH_SECRET;
+    if (!secret) {
+      console.error('CRITICAL: JWT_REFRESH_SECRET is not defined');
+      return res.status(500).json({ success: false, message: 'Server configuration error' });
+    }
+
+    const decoded = jwt.verify(refreshToken, secret);
     const user = await User.findById(decoded.id);
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'User no longer exists' });
     }
 
-    const accessToken = generateAccessToken(user._id);
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account is deactivated' });
+    }
+
+    const accessToken = generateAccessToken(user._id.toString());
     res.status(200).json({ success: true, accessToken });
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'Invalid refresh token' });
+    console.error('Refresh Token Error:', err.message);
+    return res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
   }
 };
 
@@ -161,31 +172,21 @@ exports.refresh = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    res.status(200).json({ success: true, user });
+    res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        strictMode: user.strictMode,
+        dailyGoalMinutes: user.dailyGoalMinutes,
+        deviceId: user.deviceId,
+        lastSyncAt: user.lastSyncAt,
+        createdAt: user.createdAt,
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Server error' });
-  }
-};
-
-/**
- * POST /api/v1/auth/refresh
- * Exchange a refresh token for a new access token.
- */
-exports.refresh = async (req, res) => {
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    return res.status(400).json({ success: false, message: 'Refresh token required' });
-  }
-
-  try {
-    const decoded = jwt.verify(
-      refreshToken,
-      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
-    );
-    const newAccessToken = generateAccessToken(decoded.id);
-    res.status(200).json({ success: true, accessToken: newAccessToken });
-  } catch {
-    res.status(401).json({ success: false, message: 'Invalid or expired refresh token' });
   }
 };
 
@@ -269,6 +270,10 @@ exports.updateStrictMode = async (req, res) => {
  * POST /api/v1/auth/forgot-password
  */
 exports.forgotPassword = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
   const { email } = req.body;
   try {
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -323,6 +328,10 @@ exports.forgotPassword = async (req, res) => {
  * PUT /api/v1/auth/reset-password/:resetToken
  */
 exports.resetPassword = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
   const resetPasswordToken = crypto
     .createHash('sha256')
     .update(req.params.resetToken)
@@ -400,6 +409,10 @@ exports.forgotPIN = async (req, res) => {
  * PUT /api/v1/auth/reset-pin
  */
 exports.resetPIN = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
   const { code, newPin } = req.body;
   const resetPINToken = crypto
     .createHash('sha256')

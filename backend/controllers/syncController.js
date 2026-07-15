@@ -1,35 +1,18 @@
 const AppPolicy = require('../models/AppPolicy');
 const User = require('../models/User');
+const { validationResult } = require('express-validator');
 
 /**
  * POST /api/v1/sync
  *
  * The core device-to-server sync endpoint.
- *
- * Request body:
- * {
- *   deviceId: string,
- *   usageReport: [
- *     { packageName: string, usedMs: number }
- *   ]
- * }
- *
- * Response:
- * {
- *   success: true,
- *   strictMode: boolean,
- *   policies: [AppPolicy],
- *   timestamp: ISO string
- * }
- *
- * Logic:
- * 1. Update the user's deviceId and lastSyncAt timestamp.
- * 2. For each usage entry in usageReport, update todayUsageMs on the
- *    matching AppPolicy document.
- * 3. Return the full list of active policies + strictMode flag so the
- *    Android client can update its local Room DB enforcement rules.
  */
 exports.sync = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+
   const { deviceId, usageReport } = req.body;
 
   if (!Array.isArray(usageReport)) {

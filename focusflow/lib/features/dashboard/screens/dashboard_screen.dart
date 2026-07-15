@@ -1,15 +1,17 @@
+import 'dart:ui';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/features/apps/providers/apps_provider.dart';
-import 'package:focusflow/features/auth/providers/auth_provider.dart';
 import 'package:focusflow/shared/widgets/glass_card.dart';
 import 'package:focusflow/shared/widgets/progress_ring.dart';
+import 'package:focusflow/shared/widgets/brand_logo.dart';
+import 'package:focusflow/core/services/native_channel_service.dart';
+import 'package:focusflow/features/auth/providers/auth_provider.dart';
 
-/// Screen 4: Main Dashboard
-/// Today's usage summary, active blocks, focus ring, sync status.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -21,7 +23,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(appsProvider.notifier).syncUsage());
+    Future.microtask(() => ref.read(appsProvider.notifier).refreshUsage());
   }
 
   String _formatDuration(int ms) {
@@ -35,286 +37,537 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final apps = ref.watch(appsProvider);
-    final auth = ref.watch(authProvider);
     final now = DateTime.now();
-    final greeting = now.hour < 12
-        ? 'Good morning'
-        : now.hour < 17
-            ? 'Good afternoon'
-            : 'Good evening';
+    final greeting = now.hour < 12 ? 'Good morning' : now.hour < 17 ? 'Good afternoon' : 'Good evening';
 
     final totalMs = apps.totalUsageMs;
-    final dailyGoalMs = auth.dailyGoalMinutes * 60 * 1000;
-    final progress = (totalMs / dailyGoalMs).clamp(0.0, 1.0);
+    final progress = apps.dailyProgress;
+    final dailyGoalMinutes = apps.dailyGoalMinutes;
+    final dailyGoalMs = dailyGoalMinutes * 60 * 1000;
 
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: SafeArea(
-        child: RefreshIndicator(
-          color: AppColors.primary,
-          backgroundColor: AppColors.surfaceContainerLowest,
-          onRefresh: () => ref.read(appsProvider.notifier).syncUsage(),
-          child: CustomScrollView(
-            slivers: [
-              // ── App Bar ─────────────────────────────────────────────────
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, 0),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(greeting,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelMedium
-                                    ?.copyWith(
-                                        color: AppColors.onSurfaceVariant,
-                                        letterSpacing: 0.8)),
-                            Text(
-                              auth.user?['name']?.toString().split(' ').first ??
-                                  'Focus',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Sync indicator
-                      if (apps.isSyncing)
-                        const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AppColors.primary),
-                        )
-                      else
-                        IconButton(
-                          icon: const Icon(Icons.sync_rounded),
-                          color: AppColors.primary,
-                          onPressed: () =>
-                              ref.read(appsProvider.notifier).syncUsage(),
-                        ),
-                      const SizedBox(width: 4),
-                      // Settings
-                      IconButton(
-                        icon: const Icon(Icons.settings_rounded),
-                        color: AppColors.onSurfaceVariant,
-                        onPressed: () => context.push('/settings/strict'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.surface,
+        body: Stack(
+          children: [
+            // ── Background Mesh Blobs ──────────────────────────────────────────
+            Positioned(
+              top: -100, right: -50,
+              child: _BlurredBlob(color: AppColors.primary.withValues(alpha: 0.1), size: 300),
+            ),
+            Positioned(
+              bottom: 100, left: -100,
+              child: _BlurredBlob(color: AppColors.tertiary.withValues(alpha: 0.08), size: 400),
+            ),
 
-              // ── Today's Focus Ring ────────────────────────────────────────
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.xl),
-                  child: GlassCard(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
+            SafeArea(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 800),
+                curve: Curves.easeOutCubic,
+                builder: (context, opacity, child) {
+                  return Opacity(
+                    opacity: opacity,
+                    child: Transform.translate(
+                      offset: Offset(0, 15 * (1 - opacity)),
+                      child: child!,
+                    ),
+                  );
+                },
+                child: RefreshIndicator(
+                  color: AppColors.primary,
+                  backgroundColor: AppColors.surfaceContainerLowest,
+                  onRefresh: () => ref.read(appsProvider.notifier).refreshUsage(),
+                  child: CustomScrollView(
+                    slivers: <Widget>[
+                // ── App Bar ─────────────────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, 0),
+                    child: Row(
                       children: [
-                        Text('Today\'s Screen Time',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(letterSpacing: 0.8)),
-                        const SizedBox(height: AppSpacing.xl),
-                        ProgressRing(
-                          progress: progress,
-                          size: 160,
-                          strokeWidth: 14,
+                        const BrandLogo(size: 44, iconSize: 24),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Text(greeting,
+                                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                      color: AppColors.onSurfaceVariant, letterSpacing: 0.8)),
                               Text(
-                                _formatDuration(totalMs),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: progress >= 1.0
-                                            ? AppColors.error
-                                            : AppColors.onBackground),
+                                'Focus User',
+                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
                               ),
-                              Text('used today',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                          color: AppColors.onSurfaceVariant)),
                             ],
                           ),
                         ),
-                        const SizedBox(height: AppSpacing.xl),
-
-                        // ── Quick Stats ─────────────────────────────────────
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _QuickStat(
-                              label: 'Apps Tracked',
-                              value: apps.policies.length.toString(),
-                              icon: Icons.apps_rounded,
-                            ),
-                            Container(
-                                width: 1,
-                                height: 36,
-                                color: AppColors.outlineVariant.withValues(alpha: 0.3)),
-                            _QuickStat(
-                              label: 'Over Limit',
-                              value: apps.overLimitCount.toString(),
-                              icon: Icons.block_rounded,
-                              valueColor: apps.overLimitCount > 0
-                                  ? AppColors.error
-                                  : AppColors.tertiary,
-                            ),
-                            Container(
-                                width: 1,
-                                height: 36,
-                                color: AppColors.outlineVariant.withValues(alpha: 0.3)),
-                            _QuickStat(
-                              label: 'Sync',
-                              value: apps.lastSync != null
-                                  ? DateFormat('HH:mm').format(apps.lastSync!)
-                                  : '--',
-                              icon: Icons.cloud_sync_rounded,
-                            ),
-                          ],
+                        IconButton(
+                          icon: const Icon(Icons.sync_rounded),
+                          color: AppColors.primary,
+                          onPressed: () => ref.read(appsProvider.notifier).refreshUsage(),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.settings_rounded),
+                          color: AppColors.onSurfaceVariant,
+                          onPressed: () => context.push('/settings/strict'),
                         ),
                       ],
                     ),
                   ),
                 ),
-              ),
-
-              // ── Blocked Apps Header ────────────────────────────────────
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.md),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text('Tracked Apps',
-                            style: Theme.of(context).textTheme.titleMedium),
+  
+                // ── Strict Mode Banner ───────────────────────────────────────
+                if (ref.watch(authProvider).strictMode)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.md, AppSpacing.xl, 0),
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorContainer.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
                       ),
-                      TextButton.icon(
-                        onPressed: () => context.push('/apps/select'),
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('Add App'),
-                        style: TextButton.styleFrom(
-                            foregroundColor: AppColors.primary),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // ── App List ────────────────────────────────────────────────
-              if (apps.isLoading)
-                const SliverToBoxAdapter(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.xxxl),
-                      child: CircularProgressIndicator(color: AppColors.primary),
-                    ),
-                  ),
-                )
-              else if (apps.policies.isEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: SurfaceCard(
-                      child: Column(
+                      child: Row(
                         children: [
-                          const Icon(Icons.add_circle_outline_rounded,
-                              size: 48, color: AppColors.onSurfaceVariant),
-                          const SizedBox(height: AppSpacing.md),
-                          Text('No apps tracked yet',
-                              style: Theme.of(context).textTheme.titleSmall),
-                          const SizedBox(height: 4),
-                          Text('Tap "Add App" to start blocking distractions.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: AppColors.onSurfaceVariant)),
+                          const Icon(Icons.lock_rounded, color: AppColors.error, size: 16),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              'Strict Mode Active: Limits are locked for 24h.',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.error, fontWeight: FontWeight.w600),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xxxl),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (ctx, i) {
-                        final policy = apps.policies[i];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: _AppUsageCard(
-                            policy: policy,
-                            onTap: () => context.go(
-                                '/apps/set-limit',
-                                extra: policy),
+
+                // ── Today's Focus Ring ────────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, AppSpacing.md),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        children: [
+                          Text('Today\'s Screen Time',
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(letterSpacing: 0.8)),
+                          const SizedBox(height: AppSpacing.xl),
+                          ProgressRing(
+                            progress: progress,
+                            size: 160,
+                            strokeWidth: 14,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _formatDuration(totalMs),
+                                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: progress >= 1.0 ? AppColors.error : AppColors.onBackground,
+                                      ),
+                                ),
+                                Text('used today',
+                                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.onSurfaceVariant)),
+                              ],
+                            ),
                           ),
-                        );
-                      },
-                      childCount: apps.policies.length,
+                          const SizedBox(height: AppSpacing.xl),
+  
+                          // ── Progress Comparison ─────────────────────────────────────
+                          GestureDetector(
+                            onTap: () => _showGoalPicker(context, ref, dailyGoalMinutes),
+                            behavior: HitTestBehavior.opaque,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: (progress >= 1.0 ? AppColors.error : AppColors.primary).withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(AppRadius.full),
+                                border: Border.all(
+                                  color: (progress >= 1.0 ? AppColors.error : AppColors.primary).withValues(alpha: 0.2),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    progress >= 1.0 ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
+                                    size: 16,
+                                    color: progress >= 1.0 ? AppColors.error : AppColors.tertiary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    progress >= 1.0 
+                                      ? 'Goal Exceeded' 
+                                      : '${_formatDuration(dailyGoalMs - totalMs)} Left',
+                                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                      color: progress >= 1.0 ? AppColors.error : AppColors.onSurface,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    Icons.edit_rounded, 
+                                    size: 14, 
+                                    color: (progress >= 1.0 ? AppColors.error : AppColors.primary).withValues(alpha: 0.6)
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-            ],
+
+                // ── Detailed Stats Grid ─────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+                    child: GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      mainAxisSpacing: AppSpacing.md,
+                      crossAxisSpacing: AppSpacing.md,
+                      childAspectRatio: 1.6,
+                      children: [
+                        _StatCard(
+                          label: 'Blocked Attempts',
+                          value: apps.blockedAttempts.toString(),
+                          icon: Icons.security_rounded,
+                          color: AppColors.primary,
+                        ),
+                        _StatCard(
+                          label: 'Phone Pickups',
+                          value: apps.phonePickups.toString(),
+                          icon: Icons.phonelink_ring_rounded,
+                          color: AppColors.tertiary,
+                        ),
+                        _StatCard(
+                          label: 'Apps Tracked',
+                          value: apps.policies.length.toString(),
+                          icon: Icons.apps_rounded,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                        _StatCard(
+                          label: 'Daily Goal',
+                          value: dailyGoalMinutes < 60
+                            ? '${dailyGoalMinutes}m'
+                            : dailyGoalMinutes % 60 == 0
+                              ? '${dailyGoalMinutes ~/ 60}h'
+                              : '${dailyGoalMinutes ~/ 60}h ${dailyGoalMinutes % 60}m',
+                          icon: Icons.timer_rounded,
+                          color: Colors.amber[700]!,
+                          onTap: () => _showGoalPicker(context, ref, dailyGoalMinutes),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+  
+                // ── Blocked Apps Header ────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.md),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text('Tracked Apps', style: Theme.of(context).textTheme.titleMedium),
+                        ),
+                        TextButton.icon(
+                          onPressed: ref.watch(authProvider).strictMode 
+                            ? () => ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Cannot add apps in Strict Mode'))
+                              )
+                            : () => context.push('/apps/select'),
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Add App'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: ref.watch(authProvider).strictMode 
+                              ? AppColors.onSurfaceVariant.withValues(alpha: 0.5) 
+                              : AppColors.primary
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+  
+                // ── App List ────────────────────────────────────────────────
+                if (apps.isLoading)
+                  const SliverToBoxAdapter(
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(AppSpacing.xxxl),
+                        child: CircularProgressIndicator(color: AppColors.primary),
+                      ),
+                    ),
+                  )
+                else if (apps.policies.isEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: SurfaceCard(
+                        child: Column(
+                          children: [
+                            const Icon(Icons.add_circle_outline_rounded, size: 48, color: AppColors.onSurfaceVariant),
+                            const SizedBox(height: AppSpacing.md),
+                            Text('No apps tracked yet', style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(height: 4),
+                            Text('Tap "Add App" to start blocking distractions.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xxxl),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (ctx, i) {
+                          final policy = apps.policies[i];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                            child: _AppUsageCard(
+                              policy: policy,
+                              onTap: ref.watch(authProvider).strictMode
+                                ? () => ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Strict Mode: App limits cannot be changed'))
+                                  )
+                                : () => context.push('/apps/set-limit', extra: policy),
+                            ),
+                          );
+                        },
+                        childCount: apps.policies.length,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
+      ],
+    ),
+        bottomNavigationBar: const _BottomNav(currentIndex: 0),
       ),
-
-      // ── Bottom Nav ─────────────────────────────────────────────────────────
-      bottomNavigationBar: const _BottomNav(currentIndex: 0),
     );
   }
 }
 
-class _QuickStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color? valueColor;
-
-  const _QuickStat(
-      {required this.label,
-      required this.value,
-      required this.icon,
-      this.valueColor});
+class _BlurredBlob extends StatelessWidget {
+  final Color color;
+  final double size;
+  const _BlurredBlob({required this.color, required this.size});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: valueColor ?? AppColors.onBackground,
-                )),
-        const SizedBox(height: 2),
-        Text(label,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: AppColors.onSurfaceVariant)),
-      ],
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+        child: Container(color: Colors.transparent),
+      ),
     );
   }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+        child: Stack(
+          children: [
+            if (onTap != null)
+              Positioned(
+                top: 0, right: 0,
+                child: Icon(Icons.edit_rounded, size: 10, color: color.withValues(alpha: 0.5)),
+              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 18, color: color),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: AppColors.onSurfaceVariant,
+                              fontSize: 10,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showGoalPicker(BuildContext context, WidgetRef ref, int currentMinutes) {
+  // sliderVal must live outside the builder so setState doesn't reset it
+  double sliderVal = currentMinutes.toDouble().clamp(15.0, 480.0);
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: AppColors.surface,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+    ),
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return Padding(
+            padding: EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.xl, AppSpacing.xl,
+                MediaQuery.of(context).padding.bottom + AppSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.outlineVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text('Set Daily Focus Goal', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Choose a preset or slide to customize your daily budget.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.onSurfaceVariant),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+
+                // ── Presets ──────────────────────────────────────────────────
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
+                  alignment: WrapAlignment.center,
+                  children: [60, 120, 180, 240, 300].map((mins) {
+                    // isSelected reflects the live slider value, not stale currentMinutes
+                    final isSelected = sliderVal.toInt() == mins;
+                    return ChoiceChip(
+                      label: Text('${mins ~/ 60}h'),
+                      selected: isSelected,
+                      onSelected: (_) {
+                        setState(() => sliderVal = mins.toDouble());
+                      },
+                    );
+                  }).toList(),
+                ),
+
+                const SizedBox(height: AppSpacing.xxl),
+                const Divider(),
+                const SizedBox(height: AppSpacing.lg),
+
+                // ── Custom Slider ────────────────────────────────────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Custom Budget', style: Theme.of(context).textTheme.titleSmall),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                      child: Text(
+                        sliderVal.toInt() < 60
+                          ? '${sliderVal.toInt()}m'
+                          : '${sliderVal.toInt() ~/ 60}h ${sliderVal.toInt() % 60 > 0 ? "${sliderVal.toInt() % 60}m" : ""}',
+                        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                Slider(
+                  value: sliderVal,
+                  min: 15,
+                  max: 480,
+                  divisions: 31, // 15-min increments
+                  label: sliderVal.toInt() < 60
+                    ? '${sliderVal.toInt()}m'
+                    : '${sliderVal.toInt() ~/ 60}h ${sliderVal.toInt() % 60}m',
+                  activeColor: AppColors.primary,
+                  onChanged: (val) => setState(() => sliderVal = val),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton(
+                    onPressed: () {
+                      ref.read(appsProvider.notifier).updateDailyGoal(sliderVal.toInt());
+                      Navigator.pop(context);
+                    },
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    child: const Text('Apply Goal'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
 }
 
 class _AppUsageCard extends StatelessWidget {
@@ -336,23 +589,14 @@ class _AppUsageCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // App icon placeholder
             Container(
-              width: 44,
-              height: 44,
+              width: 44, height: 44,
               decoration: BoxDecoration(
-                color: AppColors.primaryFixed,
+                color: AppColors.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              child: Center(
-                child: Text(
-                  policy.appName.isNotEmpty ? policy.appName[0].toUpperCase() : 'A',
-                  style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18),
-                ),
-              ),
+              clipBehavior: Clip.antiAlias,
+              child: _AppIcon(packageName: policy.packageName, appName: policy.appName),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -362,22 +606,17 @@ class _AppUsageCard extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(policy.appName,
-                            style: Theme.of(context).textTheme.titleSmall),
+                        child: Text(policy.appName, style: Theme.of(context).textTheme.titleSmall),
                       ),
                       if (policy.isOverLimit)
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: AppColors.errorContainer,
                             borderRadius: BorderRadius.circular(AppRadius.xs),
                           ),
                           child: Text('Over limit',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(color: AppColors.error)),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.error)),
                         ),
                     ],
                   ),
@@ -388,23 +627,17 @@ class _AppUsageCard extends StatelessWidget {
                     children: [
                       Text(policy.usedFormatted,
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: policy.isOverLimit
-                                  ? AppColors.error
-                                  : AppColors.tertiary,
+                              color: policy.isOverLimit ? AppColors.error : AppColors.tertiary,
                               fontWeight: FontWeight.w600)),
                       Text(' / ${policy.limitFormatted}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: AppColors.onSurfaceVariant)),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.onSurfaceVariant)),
                     ],
                   ),
                 ],
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
-            const Icon(Icons.chevron_right_rounded,
-                color: AppColors.onSurfaceVariant),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.onSurfaceVariant),
           ],
         ),
       ),
@@ -421,9 +654,7 @@ class _BottomNav extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceContainerLowest.withValues(alpha: 0.95),
-        border: Border(
-            top: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.15), width: 1)),
+        border: Border(top: BorderSide(color: AppColors.outlineVariant.withValues(alpha: 0.15), width: 1)),
       ),
       child: NavigationBar(
         selectedIndex: currentIndex,
@@ -431,22 +662,54 @@ class _BottomNav extends StatelessWidget {
         indicatorColor: AppColors.primaryFixed,
         onDestinationSelected: (i) {
           switch (i) {
-            case 0:
-              context.go('/dashboard');
-            case 1:
-              context.go('/apps/select');
-            case 2:
-              context.go('/settings/strict');
+            case 0: context.go('/dashboard');
+            case 1: context.push('/apps/select');
+            case 2: context.push('/settings/strict');
           }
         },
         destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-          NavigationDestination(
-              icon: Icon(Icons.apps_rounded), label: 'Apps'),
-          NavigationDestination(
-              icon: Icon(Icons.settings_rounded), label: 'Settings'),
+          NavigationDestination(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
+          NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
         ],
+      ),
+    );
+  }
+}
+
+class _AppIcon extends StatelessWidget {
+  final String packageName;
+  final String appName;
+  const _AppIcon({required this.packageName, required this.appName});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: NativeChannelService().getAppIcon(packageName),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data != null) {
+          return Image.memory(
+            base64Decode(snapshot.data!),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _Placeholder(name: appName),
+          );
+        }
+        return _Placeholder(name: appName);
+      },
+    );
+  }
+}
+
+class _Placeholder extends StatelessWidget {
+  final String name;
+  const _Placeholder({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        name.isNotEmpty ? name[0].toUpperCase() : 'A',
+        style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 18),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/features/apps/providers/apps_provider.dart';
+import 'package:focusflow/features/auth/providers/auth_provider.dart';
 import 'package:focusflow/shared/widgets/gradient_button.dart';
 
 /// Screen 6: Set Limit
@@ -25,7 +26,7 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
   @override
   void initState() {
     super.initState();
-    _limitMinutes = widget.policy.timeLimitMinutes.toDouble().clamp(0, 480);
+    _limitMinutes = widget.policy.timeLimitMinutes.toDouble().clamp(5, 480);
     _isFullBlock = widget.policy.timeLimitMinutes == 0;
   }
 
@@ -49,6 +50,17 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final apps = ref.watch(appsProvider);
+    // Find the latest policy state for this package
+    final currentPolicy = apps.policies.firstWhere(
+      (p) => p.packageName == widget.policy.packageName,
+      orElse: () => widget.policy,
+    );
+    
+    final isOverLimit = currentPolicy.isOverLimit;
+    final isStrict = ref.watch(authProvider).strictMode;
+    final isLocked = isStrict || isOverLimit;
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(
@@ -93,22 +105,47 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(widget.policy.appName,
-                          style: Theme.of(context).textTheme.titleMedium),
-                      Text(widget.policy.packageName,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.onSurfaceVariant),
-                          overflow: TextOverflow.ellipsis),
-                    ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.policy.appName,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        Text(widget.policy.packageName,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.onSurfaceVariant),
+                            overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
 
             const SizedBox(height: AppSpacing.xl),
+
+            if (isOverLimit && !isStrict)
+              Container(
+                margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: AppColors.errorContainer.withValues(alpha: 0.2),
+                  borderRadius: AppRadius.cardRadius,
+                  border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_clock_rounded, color: AppColors.error),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        'This app is currently over its limit. Settings are locked until tomorrow to prevent bypass.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.error),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // ── Full Block Toggle ─────────────────────────────────────────
             Container(
@@ -148,8 +185,12 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
                   ),
                   Switch(
                     value: _isFullBlock,
-                    activeThumbColor: AppColors.error,
-                    onChanged: (v) => setState(() => _isFullBlock = v),
+                    activeTrackColor: AppColors.error,
+                    onChanged: isLocked
+                        ? null
+                        : (val) => setState(() {
+                              _isFullBlock = val;
+                            }),
                   ),
                 ],
               ),
@@ -197,9 +238,9 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
                       min: 5,
                       max: 480,
                       divisions: 95,
-                      onChanged: _isFullBlock
+                      onChanged: (_isFullBlock || isLocked)
                           ? null
-                          : (v) => setState(() => _limitMinutes = v),
+                          : (val) => setState(() => _limitMinutes = val),
                     ),
                   ),
 
@@ -236,14 +277,13 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   Wrap(
                     spacing: AppSpacing.sm,
-                    children: _presets.map((mins) {
+                    children: _presets.map<Widget>((mins) {
                       final selected = !_isFullBlock &&
                           _limitMinutes.toInt() == mins;
                       return GestureDetector(
-                        onTap: _isFullBlock
+                        onTap: (_isFullBlock || isLocked)
                             ? null
-                            : () =>
-                                setState(() => _limitMinutes = mins.toDouble()),
+                            : () => setState(() => _limitMinutes = mins.toDouble()),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           padding: const EdgeInsets.symmetric(
@@ -286,8 +326,44 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
               label: 'Save Limit',
               icon: Icons.save_rounded,
               isLoading: _isSaving,
-              onPressed: _save,
+              onPressed: isLocked ? null : _save,
             ),
+
+            // ── Per-screen section blocking link ─────────────────────────────
+            const SizedBox(height: AppSpacing.lg),
+            if (!isLocked)
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primaryFixed.withValues(alpha: 0.5),
+                  borderRadius: AppRadius.cardRadius,
+                  border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.18),
+                      width: 1),
+                ),
+                child: ListTile(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: AppRadius.cardRadius),
+                  leading: const Icon(Icons.layers_rounded,
+                      color: AppColors.primary),
+                  title: Text('Block specific sections',
+                      style: Theme.of(context).textTheme.titleSmall),
+                  subtitle: Text(
+                    'e.g. Reels, Stories, Explore in ${widget.policy.appName}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded,
+                      color: AppColors.primary),
+                  onTap: () => context.push(
+                    '/apps/detail',
+                    extra: {
+                      'packageName': widget.policy.packageName,
+                      'appName': widget.policy.appName,
+                    },
+                  ),
+                ),
+              ),
 
             // Delete button if already exists
             if (widget.policy.id != null) ...[
@@ -296,8 +372,8 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
                 label: 'Remove App',
                 isSecondary: true,
                 icon: Icons.delete_outline_rounded,
-                onPressed: () async {
-                  await ref.read(appsProvider.notifier).deletePolicy(widget.policy.id!);
+                onPressed: isLocked ? null : () async {
+                  await ref.read(appsProvider.notifier).deletePolicy(widget.policy.packageName);
                   if (context.mounted) context.go('/dashboard');
                 },
               ),
