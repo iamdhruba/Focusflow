@@ -278,6 +278,23 @@ class AppsNotifier extends StateNotifier<AppsState> {
   Future<void> load() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
+      // Bug D UX (Nov 2025): populate the installed-apps list
+      // proactively on cold start, so the dashboard's "Available to
+      // track" section has fresh data without the user having to
+      // navigate to /apps/select first.
+      //
+      // Guarded with `isEmpty` so this only runs when the list isn't
+      // already populated. `load()` is also invoked by the hot path
+      // (upsertPolicy after every Track tap, refreshUsage after every
+      // dashboard pull-to-refresh), and re-enumerating every installed
+      // app on the Kotlin main thread on each of those calls was adding
+      // a few hundred ms of UI-thread work per tap. The list is now
+      // populated ONCE on the first cold load and stays warm thereafter
+      // through the WorkManager background task's own refresh.
+      if (state.installedApps.isEmpty) {
+        await loadInstalledApps();
+      }
+
       final policiesData = await _localService.getPolicies();
       final policies = policiesData.map(AppPolicyModel.fromMap).toList();
 

@@ -125,11 +125,19 @@ class ApiService {
         return data['message'].toString();
       }
       switch (error.type) {
+        // Bug C copy fix (Nov 2025): the previous wording ("Check your
+        // internet connection") blamed the user even when the issue was
+        // a sleeping Render backend, a corporate firewall, or — most
+        // commonly — a missing android.permission.INTERNET on the app.
+        // The new messages acknowledge the more likely real cause (the
+        // cloud service itself is starting up) and surface a retry
+        // instruction instead of pointing fingers.
         case DioExceptionType.connectionTimeout:
+          return 'Could not reach the FocusFlow cloud in time. Try again in a moment.';
         case DioExceptionType.receiveTimeout:
-          return 'Connection timed out. Check your internet connection.';
+          return 'The server took too long to respond — it may be starting up. Try again shortly.';
         case DioExceptionType.connectionError:
-          return 'Cannot reach server. Check your internet connection.';
+          return 'Can\'t reach the FocusFlow cloud. The server may be waking up or your network may be blocking it. Try again in a few seconds.';
         default:
           return error.message ?? 'An unexpected error occurred.';
       }

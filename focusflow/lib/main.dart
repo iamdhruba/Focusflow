@@ -12,6 +12,7 @@ import 'package:focusflow/core/storage/local_database.dart';
 import 'package:focusflow/core/theme/app_theme.dart';
 import 'package:focusflow/app_router.dart';
 import 'package:focusflow/features/apps/providers/apps_provider.dart';
+import 'package:focusflow/features/onboarding/providers/permission_provider.dart';
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -134,72 +135,112 @@ String? pendingBlockedScreenOnLaunch;
 /// Phase 1: friendly name (e.g. "Reels") queued for cold-launch recovery.
 String? pendingBlockedScreenFriendlyOnLaunch;
 
-class FocusFlowApp extends ConsumerWidget {
+class FocusFlowApp extends ConsumerStatefulWidget {
   const FocusFlowApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
+  ConsumerState<FocusFlowApp> createState() => _FocusFlowAppState();
+}
 
-    // Initialize native channel listener for blocking events
+class _FocusFlowAppState extends ConsumerState<FocusFlowApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    // App-level lifecycle observer: catches every foreground transition
+    // regardless of which screen happens to be on top.
+    WidgetsBinding.instance.addObserver(this);
+
+    // One-shot post-frame init (formerly inside the ConsumerWidget build
+    // method, where it was re-registered on every rebuild). Pulling it
+    // up into initState ensures each listener wires exactly once across
+    // the app lifetime.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      NativeChannelService().init(
-        onAppBlocked: (args) {
-          // args carries: packageName, and (Phase 1) screenKey + screenFriendly
-          final pkg = args['packageName'] as String?;
-          if (pkg == null) return;
-          final apps = ref.read(appsProvider).policies;
-          final app = apps.where((p) => p.packageName == pkg).firstOrNull;
-          final appName = app?.appName ?? pkg;
+      if (!mounted) return;
+      _wireNativeChannelListeners();
+      _routeColdLaunchPackageIfAny();
+    });
+  }
 
-          // Phase 1: pass through screen level info if native provided it
-          final screenKey = args['screenKey'] as String?;
-          final screenFriendly = args['screenFriendly'] as String?;
-          router.push(
-            '/blocker',
-            extra: {
-              'appName': appName,
-              'screenKey': screenKey,
-              'screenFriendly': screenFriendly,
-            },
-          );
-        },
-        // Phase 4: live per-screen dwell updates pushed by the Accessibility
-        // service every ~5s while the user lingers on a matched screen.
-        onScreenUsageUpdate: (args) {
-          final pkg = args['packageName'] as String?;
-          final screen = args['screenKey'] as String?;
-          final ms = (args['usedMs'] as num?)?.toInt() ?? 0;
-          if (pkg == null || screen == null) return;
-          ref
-              .read(appsProvider.notifier)
-              .updateScreenUsage(pkg, screen, ms);
-        },
-      );
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-      // Fix 4 (Dart side): if we were launched by a blocked-app intent, the
-      // listener above was attached AFTER the native invoke was already lost.
-      // Pick up the cached package from main() and route to /blocker now.
-      final coldLaunchPkg = pendingBlockedPackageOnLaunch;
-      final coldLaunchScreen = pendingBlockedScreenOnLaunch;
-      final coldLaunchScreenFriendly = pendingBlockedScreenFriendlyOnLaunch;
-      if (coldLaunchPkg != null) {
-        pendingBlockedPackageOnLaunch = null;
-        pendingBlockedScreenOnLaunch = null;
-        pendingBlockedScreenFriendlyOnLaunch = null;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Bug A2 fix (Nov 2025): on every background → foreground transition
+    // re-check ALL permission state. Required because the per-screen
+    // WidgetsBindingObserver on permission_guide_screen.dart only fired
+    // while the user was on that one screen. If the user granted Usage
+    // Stats Access (or any other permission) by SIDE-DOOR — i.e., from
+    // Settings → Apps → FocusFlow → ⋮ → "Allow restricted settings"
+    // (the Android 13+ workaround for sideloaded apps) — while sitting
+    // on the Dashboard or any other screen, the in-app toggle stayed
+    // OFF until they manually re-opened the permission screen. Catch it
+    // here so the toggle updates the moment they return to FocusFlow.
+    if (state == AppLifecycleState.resumed) {
+      ref.read(permissionProvider.notifier).checkAll();
+    }
+  }
+
+  void _wireNativeChannelListeners() {
+    final router = ref.read(appRouterProvider);
+    NativeChannelService().init(
+      onAppBlocked: (args) {
+        final pkg = args['packageName'] as String?;
+        if (pkg == null) return;
         final apps = ref.read(appsProvider).policies;
-        final app = apps.where((p) => p.packageName == coldLaunchPkg).firstOrNull;
-        router.go(
+        final app = apps.where((p) => p.packageName == pkg).firstOrNull;
+        final appName = app?.appName ?? pkg;
+
+        final screenKey = args['screenKey'] as String?;
+        final screenFriendly = args['screenFriendly'] as String?;
+        router.push(
           '/blocker',
           extra: {
-            'appName': app?.appName ?? coldLaunchPkg,
-            'screenKey': coldLaunchScreen,
-            'screenFriendly': coldLaunchScreenFriendly,
+            'appName': appName,
+            'screenKey': screenKey,
+            'screenFriendly': screenFriendly,
           },
         );
-      }
-    });
+      },
+      onScreenUsageUpdate: (args) {
+        final pkg = args['packageName'] as String?;
+        final screen = args['screenKey'] as String?;
+        final ms = (args['usedMs'] as num?)?.toInt() ?? 0;
+        if (pkg == null || screen == null) return;
+        ref.read(appsProvider.notifier).updateScreenUsage(pkg, screen, ms);
+      },
+    );
+  }
 
+  void _routeColdLaunchPackageIfAny() {
+    final router = ref.read(appRouterProvider);
+    final coldLaunchPkg = pendingBlockedPackageOnLaunch;
+    final coldLaunchScreen = pendingBlockedScreenOnLaunch;
+    final coldLaunchScreenFriendly = pendingBlockedScreenFriendlyOnLaunch;
+    if (coldLaunchPkg != null) {
+      pendingBlockedPackageOnLaunch = null;
+      pendingBlockedScreenOnLaunch = null;
+      pendingBlockedScreenFriendlyOnLaunch = null;
+      final apps = ref.read(appsProvider).policies;
+      final app = apps.where((p) => p.packageName == coldLaunchPkg).firstOrNull;
+      router.go(
+        '/blocker',
+        extra: {
+          'appName': app?.appName ?? coldLaunchPkg,
+          'screenKey': coldLaunchScreen,
+          'screenFriendly': coldLaunchScreenFriendly,
+        },
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
       title: 'FocusFlow',
       debugShowCheckedModeBanner: false,

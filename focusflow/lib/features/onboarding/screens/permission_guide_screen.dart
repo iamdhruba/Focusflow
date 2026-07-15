@@ -23,6 +23,10 @@ class _PermissionGuideScreenState
   @override
   void initState() {
     super.initState();
+    // First-time snapshot of permission state. The persistent lifecycle
+    // observer now lives in FocusFlowApp (main.dart) so re-checks also
+    // fire when the user returns from a system prompt WHILE sitting on
+    // any other screen — not just this one. See Bug A2 fix in main.dart.
     Future.microtask(() => ref.read(permissionProvider.notifier).checkAll());
   }
 

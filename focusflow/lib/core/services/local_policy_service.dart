@@ -60,8 +60,17 @@ class LocalPolicyService {
 
     if (policies.isNotEmpty) {
       final policy = policies.first;
-      final limitMs = (policy['timeLimitMinutes'] as int) * 60 * 1000;
-      final isOverLimit = usedMs >= limitMs ? 1 : 0;
+      final limitMinutes = policy['timeLimitMinutes'] as int;
+      // Bug B root-cause fix (Nov 2025): full-block policies
+      // (limitMinutes == 0) explicitly mean "always block", NOT
+      // "you went over your limit". Without this guard, any
+      // `usedMs > 0` would flip `isOverLimit = 1` (because
+      // `usedMs >= 0L` is always true), which then made SetLimitScreen
+      // render the misleading "Settings are locked until tomorrow to
+      // prevent bypass" warning and disable the time-limit slider.
+      final limitMs = limitMinutes * 60 * 1000;
+      final isOverLimit =
+          limitMinutes > 0 && usedMs >= limitMs ? 1 : 0;
 
       await db.update(
         'policies',

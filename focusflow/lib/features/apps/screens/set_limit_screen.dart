@@ -26,8 +26,16 @@ class _SetLimitScreenState extends ConsumerState<SetLimitScreen> {
   @override
   void initState() {
     super.initState();
-    _limitMinutes = widget.policy.timeLimitMinutes.toDouble().clamp(5, 480);
     _isFullBlock = widget.policy.timeLimitMinutes == 0;
+    // When the saved policy is a full block the slider is dimmed to
+    // 30% opacity (see AnimatedOpacity below) and the onChanged handler
+    // is null, so its visible value is cosmetic only. Seed it at 5m so
+    // the thumb sits at the actionable left edge if the user toggles
+    // Full Block off — without this branch the previous `clamp(5, 480)`
+    // was silently converting the saved `0` to `5`, which made users
+    // think the full block "wasn't saved as full block" when they
+    // re-opened the screen.
+    _limitMinutes = _isFullBlock ? 5.0 : widget.policy.timeLimitMinutes.toDouble().clamp(5, 480);
   }
 
   String _formatMinutes(double mins) {

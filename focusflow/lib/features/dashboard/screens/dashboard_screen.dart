@@ -34,9 +34,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return m > 0 ? '${h}h ${m}m' : '${h}h';
   }
 
+  /// Bug D UX (Nov 2025): one-tap tracking from the dashboard's
+  /// "Available to track" section. Creates an AppPolicy with a
+  /// 60-minute soft cap (non-invasive default — doesn't lock the user
+  /// out of the app's workflow, but starts tracking immediately) and
+  /// lets `load()` re-flow the just-tracked entry into the Tracked
+  /// Apps list above. Editable later via SetLimitScreen.
+  Future<void> _trackApp(InstalledApp app) async {
+    await ref.read(appsProvider.notifier).upsertPolicy(
+          packageName: app.packageName,
+          appName: app.appName,
+          timeLimitMinutes: 60,
+          isActive: true,
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
     final apps = ref.watch(appsProvider);
+    // Bug D UX (Nov 2025): installed apps minus already-tracked ones,
+    // capped at 8 rows to keep the dashboard fast. The user can still
+    // reach the full list via the "See all" link → /apps/select.
+    final untrackedApps = apps.installedApps
+        .where((a) => !apps.policies.any((p) => p.packageName == a.packageName))
+        .take(8)
+        .toList();
     final now = DateTime.now();
     final greeting = now.hour < 12 ? 'Good morning' : now.hour < 17 ? 'Good afternoon' : 'Good evening';
 
@@ -356,6 +378,51 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                     ),
                   ),
+
+                  // ── Available-to-track section (Bug D UX) ─────────────────
+                  // Surface installed-but-not-yet-tracked apps inline so
+                  // the user never has to navigate to /apps/select first.
+                  if (untrackedApps.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.xl,
+                            AppSpacing.lg,
+                            AppSpacing.xl,
+                            AppSpacing.sm),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text('Available to track',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium),
+                            ),
+                            Text('${untrackedApps.length} more',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                        color:
+                                            AppColors.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xxxl),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (ctx, i) => _UntrackedAppCard(
+                            app: untrackedApps[i],
+                            onTrack: () => _trackApp(untrackedApps[i]),
+                          ),
+                          childCount: untrackedApps.length,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -696,6 +763,82 @@ class _AppIcon extends StatelessWidget {
         }
         return _Placeholder(name: appName);
       },
+    );
+  }
+}
+
+/// Bug D UX (Nov 2025): inline card for one-tap tracking from the
+/// dashboard's "Available to track" section. Smaller and less heavy
+/// than _AppUsageCard because there's no usage bar / progress to
+/// render yet — just icon, name, package, and a Track button.
+class _UntrackedAppCard extends StatelessWidget {
+  final InstalledApp app;
+  final VoidCallback onTrack;
+
+  const _UntrackedAppCard({required this.app, required this.onTrack});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainerLowest,
+          borderRadius: AppRadius.cardRadius,
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.15),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: app.iconBase64 != null
+                  ? Image.memory(
+                      base64Decode(app.iconBase64!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          _Placeholder(name: app.appName),
+                    )
+                  : _Placeholder(name: app.appName),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(app.appName,
+                      style: Theme.of(context).textTheme.titleSmall),
+                  Text(
+                    app.packageName,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onTrack,
+              icon: const Icon(Icons.add_circle_rounded,
+                  size: 18, color: AppColors.primary),
+              label: const Text('Track'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
