@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:focusflow/core/services/api_service.dart';
 import 'package:focusflow/core/services/local_policy_service.dart';
 import 'package:focusflow/core/services/native_channel_service.dart';
 import 'package:focusflow/core/services/screen_policy_service.dart';
@@ -61,6 +63,23 @@ void callbackDispatcher() {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Environment + API client setup ──────────────────────────────────────────
+  // Dotenv must be loaded BEFORE ApiService().init() because
+  // ApiConstants.baseUrl reads dotenv.env['API_BASE_URL'] / ['APP_ENV'].
+  // If .env is missing in dev we log a warning and continue — the
+  // production path inside ApiConstants.baseUrl still throws a StateError
+  // when APP_ENV=production and the URL is empty.
+  try {
+    await dotenv.load(fileName: '.env');
+  } catch (e) {
+    debugPrint('dotenv.load failed (missing .env?): $e');
+  }
+  try {
+    ApiService().init();
+  } catch (e) {
+    debugPrint('ApiService.init failed: $e');
+  }
 
   // ── Register WorkManager local sync ─────────────────────────────────────────
   if (!kIsWeb) {

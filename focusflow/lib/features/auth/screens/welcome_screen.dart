@@ -77,12 +77,29 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
                   GradientButton(
                     label: 'Get Started',
                     icon: Icons.arrow_forward_rounded,
-                    onPressed: () => context.go('/login'),
+                    onPressed: () => context.go('/onboarding/pitch'),
                   ),
-                  const SizedBox(height: AppSpacing.xl),
+                  const SizedBox(height: AppSpacing.md),
+                  // Optional sign-in for returning users. The app is fully
+                  // usable without an account; sign-in only enables cloud
+                  // sync of block lists across devices + Strict Mode
+                  // enforcement backed by the server.
+                  Center(
+                    child: TextButton(
+                      onPressed: () => context.go('/login'),
+                      child: Text(
+                        'I already have an account',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   Center(
                     child: Text(
-                      'By continuing you agree to our Terms & Privacy Policy',
+                      'FocusFlow works on-device. Your data never leaves your phone.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: AppColors.onSurfaceVariant,

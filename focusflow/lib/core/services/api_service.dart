@@ -14,6 +14,16 @@ class ApiService {
   late final Dio _dio;
   bool _initialized = false;
 
+  /// Lazy-init guard. The first HTTP request triggers Dio creation if
+  /// nobody called [init] explicitly. Keeps the singleton safe even if
+  /// a future code path forgets the explicit init() — the symptom
+  /// would otherwise be a `LateInitializationError: Field '_dio' has not
+  /// been initialized` on first network call.
+  void _ensureInitialized() {
+    if (_initialized) return;
+    init();
+  }
+
   /// Must be called once at app startup after dotenv is loaded.
   void init() {
     if (_initialized) return;
@@ -82,19 +92,30 @@ class ApiService {
 
   // ── Convenience Methods ────────────────────────────────────────────────────
 
-  Future<Response> get(String path, {Map<String, dynamic>? params}) =>
-      _dio.get(path, queryParameters: params);
+  Future<Response> get(String path, {Map<String, dynamic>? params}) {
+    _ensureInitialized();
+    return _dio.get(path, queryParameters: params);
+  }
 
-  Future<Response> post(String path, {dynamic data}) =>
-      _dio.post(path, data: data);
+  Future<Response> post(String path, {dynamic data}) {
+    _ensureInitialized();
+    return _dio.post(path, data: data);
+  }
 
-  Future<Response> patch(String path, {dynamic data}) =>
-      _dio.patch(path, data: data);
+  Future<Response> patch(String path, {dynamic data}) {
+    _ensureInitialized();
+    return _dio.patch(path, data: data);
+  }
 
-  Future<Response> put(String path, {dynamic data}) =>
-      _dio.put(path, data: data);
+  Future<Response> put(String path, {dynamic data}) {
+    _ensureInitialized();
+    return _dio.put(path, data: data);
+  }
 
-  Future<Response> delete(String path) => _dio.delete(path);
+  Future<Response> delete(String path) {
+    _ensureInitialized();
+    return _dio.delete(path);
+  }
 
   /// Parse Dio errors into readable messages
   static String parseError(dynamic error) {
